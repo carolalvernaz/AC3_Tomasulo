@@ -35,13 +35,13 @@ O projeto foi escrito em C e pode ser compilado com `gcc`. O simulador lê as in
 (Supondo que o código-fonte se chame `tomasulo.c`)
 
 ```bash
-gcc -o simulador tomasulo.c
+gcc -o tomasulo tomasulo.c
 ```
 
 **Execução:**
 
 ```bash
-./simulador
+./tomasulo
 ```
 
 *(O programa procurará automaticamente pelo arquivo `simulacao.txt` no mesmo diretório.)*
