@@ -27,9 +27,9 @@ Operacao memoria_instrucoes[MAX_INSTR_MEM];
 typedef struct {
     OpType op;
     int tag_j, tag_k; // Tags do ROB (qj, qk)
-    int val_j, val_k; // Valores dos operandos (vj, vk)
-    int rob_destino;  // Índice do ROB para onde escrever
-    int cycles_left;  // ciclos restantes para executar nesta ER
+    int val_j, val_k; // Valores dos operandos
+    int rob_destino; 
+    int cycles_left;
     bool ocupado;
 } SlotReserva;
 
@@ -40,8 +40,8 @@ typedef struct {
     OpType op;
     int reg_arq_dest; // Registrador de destino
     int valor;
-    bool pronto;      // Resultado está pronto
-    bool em_uso;      // Entrada está em uso
+    bool pronto; 
+    bool em_uso; 
 } ItemROB;
 
 ItemROB fila_reordenacao[TAM_FILA_ROB];
