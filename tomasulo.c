@@ -9,7 +9,6 @@
 #define QTD_REGISTRADORES 8
 
 // Estruturas de Dados
-
 // Tipos de operação
 typedef enum { ADD, SUB, MUL, DIV, LI, HALT } OpType;
 
@@ -145,7 +144,6 @@ void mostrar_estacoes_reserva() {
     printf("--------------------------------------------\n");
 }
 
-
 void mostrar_regs_final() {
     printf("Registradores: ");
      for (int i = 0; i < QTD_REGISTRADORES; i++) {
@@ -226,8 +224,7 @@ void etapa_despacho(int instr_count) {
     } else {
         printf("Issue: PC=%d -> ER[%d], ROB[%d], R%d = R%d %s R%d\n",
            cpu_core.pc, er_idx, rob_idx, instr_atual.rd, instr_atual.rs1, op_str, instr_atual.rs2);
-    }
-    
+    }    
     cpu_core.pc++;
 }
 
@@ -313,7 +310,7 @@ void etapa_finalizacao() {
 
         printf("Commit: R%d <- %d (ROB[%d])\n", dest_reg, val_final, head_idx);
 
-        // Libera entrada do ROB
+        // Libera entrada do ROB e avança o ponteiro
         fila_reordenacao[head_idx].em_uso = false;
         fila_reordenacao[head_idx].pronto = false; 
 
@@ -394,8 +391,7 @@ int main() {
     // Loop principal da simulação
     bool halt_detectado = false;
     
-    while (true) {
-        
+    while (true) {      
         if (cpu_core.pc >= instr_count) {
             printf("Fim da memoria de instrucoes alcancado.\n");
             break;
@@ -414,9 +410,8 @@ int main() {
         mostrar_banco_regs();
         mostrar_estacoes_reserva();
 
-
         if (!halt_detectado) {
-            etapa_despacho(instr_count);
+            etapa_despacho(instr_count); // Envia instrução para ROB e Estação de Reserva
         }
         etapa_execucao();
         etapa_finalizacao();
@@ -432,6 +427,5 @@ int main() {
 
     printf("ESTADO FINAL\n");
     mostrar_regs_final();
-
     return 0;
 }
