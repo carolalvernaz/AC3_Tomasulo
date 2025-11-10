@@ -1,35 +1,38 @@
 # README: Simulador do Algoritmo de Tomasulo
 
-Este projeto é um simulador em C do algoritmo de Tomasulo, implementando escalonamento dinâmico e execução especulativa por meio de um Buffer de Reordenação (ROB).
+Este projeto é um simulador em C do algoritmo de Tomasulo, implementando escalonamento dinâmico e execução fora de ordem (out-of-order) com suporte a dependências de dados, estações de reserva e Buffer de Reordenação (ROB).
 
-## 1\. O Algoritmo de Tomasulo com Especulação
+## 1. O Algoritmo de Tomasulo
 
-As explicações são baseadas nos conceitos do livro *Computer Architecture: A Quantitative Approach*.
+Baseado nos conceitos do livro *Computer Architecture: A Quantitative Approach* (Hennessy & Patterson), o algoritmo de Tomasulo é uma técnica de escalonamento dinâmico que permite execução paralela e especulativa de instruções, maximizando o paralelismo de instruções (ILP).
 
-O algoritmo de Tomasulo é uma técnica de escalonamento dinâmico para execução fora de ordem (out-of-order) que maximiza o paralelismo (ILP). Este simulador implementa a versão moderna com execução especulativa, usando um Buffer de Reordenação (ROB) para permitir que o processador execute instruções de desvios (branches) antes que eles sejam resolvidos.
+Neste simulador, há suporte a execução fora de ordem com controle de dependências de dados via estações de reserva (ER) e reordenação in-order no commit, garantindo a consistência do estado arquitetural.
 
-### O Pipeline de Execução
+### Estágios do Pipeline
 
-O pipeline de execução possui os seguintes estágios:
+1. **Issue (Emissão):** A instrução é alocada em uma Estação de Reserva (ER) e em um slot do Buffer de Reordenação (ROB). A ER aguarda os operandos ficarem disponíveis.
+2. **Execute (Execução):** Quando os operandos estão prontos, a instrução é executada. O resultado é gravado no ROB e marcado como pronto.
+3. **Write/Commit (Escrita e Efetivação):** O resultado pronto é difundido no barramento CDB, permitindo que outras ERs recebam os valores. O commit em ordem atualiza o banco de registradores, garantindo consistência e exceções precisas.
 
-1.  **Issue (Emissão):** A instrução é alocada em uma Estação de Reserva (ER) e em um slot no Buffer de Reordenação (ROB). A ER aguarda os operandos ficarem disponíveis.
-2.  **Execute (Execução):** Quando os operandos estão prontos, a instrução é executada. O resultado é escrito no ROB e marcado como 'pronto'.
-3.  **Write/Commit (Escrita e Efetivação):** O resultado pronto é difundido no Common Data Bus (CDB) para atualizar outras ERs. A instrução na 'cabeça' do ROB que está pronta é 'comitada' (efetivada), escrevendo seu resultado final no banco de registradores.
+O commit em ordem assegura que o processador mantenha um estado previsível mesmo com execução fora de ordem.
 
-O *Commit* em ordem garante que o estado do processador só seja atualizado permanentemente, permitindo a recuperação de especulações erradas e exceções precisas.
+---
 
-## 2\. Integrantes do Grupo
+## 2. Integrantes do Grupo
 
-  * **Professor:** Matheus Alcântara Souza
-  * Caroline Freitas Alvernaz
-  * Giovanna Naves Ribeiro
-  * Júlia Rodrigues Vasconcellos Melo
-  * Marcos Paulo da Silva Laine
-  * Priscila Andrade de Moraes
+* **Professor:** Matheus Alcântara Souza
+* Caroline Freitas Alvernaz
+* Giovanna Naves Ribeiro
+* Júlia Rodrigues Vasconcellos Melo
+* Marcos Paulo da Silva Laine
+* Priscila Andrade de Moraes
 
-## 3\. Como Compilar e Executar
+---
 
-O projeto foi escrito em C e pode ser compilado com `gcc`. O simulador lê as instruções do arquivo `simulacao.txt`.
+## 3. Como Compilar e Executar
+
+O projeto foi escrito em C e pode ser compilado com `gcc`.
+O simulador lê as instruções de um arquivo chamado `simulacao.txt`.
 
 **Compilação:**
 
@@ -43,44 +46,115 @@ gcc -o tomasulo tomasulo.c
 ./tomasulo
 ```
 
-## 4\. Formato do Arquivo de Entrada (`simulacao.txt`)
+---
 
-O arquivo `simulacao.txt` deve conter uma instrução por linha, com mnemônicos em MAIÚSCULAS e registradores prefixados com `R`.
+## 4. Formato do Arquivo de Entrada (`simulacao.txt`)
 
-**Operações Suportadas:**
+O arquivo `simulacao.txt` deve conter uma instrução por linha, com mnemônicos em letras maiúsculas e registradores prefixados com `R`.
 
-  * **LD (Load Immediate):** Carrega um valor imediato.
-      * `LD R1, R0, 6`
-  * **ADD (Adição):** Soma dois registradores.
-      * `ADD R3, R1, R2`
-  * **SUB (Subtração):** Subtrai dois registradores.
-      * `SUB R5, R3, R4`
-  * **MUL (Multiplicação):** Multiplica dois registradores.
-      * `MUL R4, R1, R2`
-  * **DIV (Divisão):** Divide o valor do primeiro registrador pelo segundo.
-      * `DIV R6, R4, R2`
-  * **HALT (Parada):** Indica o fim do programa.
-      * `HALT`
+### Operações Suportadas
+
+* **LW (Load Word com base e deslocamento):**
+  Calcula o endereço base + offset e grava o valor resultante no registrador de destino.
+  (Neste simulador, não há memória de dados; o resultado é tratado como o valor base + offset.)
+
+  ```
+  LW R1, R0 (10)
+  ```
+
+  Exemplo: R1 ← R0 + 10
+
+* **ADD (Adição):**
+  Soma dois registradores.
+
+  ```
+  ADD R3, R1, R2
+  ```
+
+  Exemplo: R3 ← R1 + R2
+
+* **SUB (Subtração):**
+  Subtrai dois registradores.
+
+  ```
+  SUB R4, R2, R1
+  ```
+
+  Exemplo: R4 ← R2 − R1
+
+* **MUL (Multiplicação):**
+  Multiplica dois registradores.
+
+  ```
+  MUL R5, R1, R2
+  ```
+
+  Exemplo: R5 ← R1 × R2
+  (Latência de 2 ciclos)
+
+* **DIV (Divisão):**
+  Divide o valor do primeiro registrador pelo segundo.
+
+  ```
+  DIV R6, R4, R2
+  ```
+
+  Exemplo: R6 ← R4 ÷ R2
+  (Latência de 2 ciclos)
+
+* **HALT (Parada):**
+  Indica o fim do programa.
+
+  ```
+  HALT
+  ```
+
+---
 
 ### Exemplo de `simulacao.txt`
 
 ```
-LD R1, R0, 6
-LD R2, R0, 10
+LW R1, R0 (10)
+LW R2, R0 (20)
 ADD R3, R1, R2
-MUL R4, R1, R2
-SUB R5, R3, R4
+MUL R4, R3, R1
+SUB R5, R4, R2
 HALT
 ```
 
-**Não é suportado o uso de desvios (jump, BEQ, BNE, etc.).**
+**Resultado esperado:**
 
-## 5\. Siglas e Conceitos-Chave
+* R1 = 10
+* R2 = 20
+* R3 = 30
+* R4 = 300
+* R5 = 280
 
-  * **ER / RS (Estação de Reserva):** Armazena instruções emitidas e seus operandos (ou tags de quem os produzirá). Permite o renome de registradores para eliminar conflitos WAR e WAW.
-  * **ROB (Buffer de Reordenação):** Fila que armazena resultados de instruções executadas. Garante que o commit (efetivação) seja feito na ordem original do programa.
-  * **CDB (Common Data Bus):** Barramento de difusão (broadcast) que entrega resultados prontos do ROB e das UFs para as Estações de Reserva.
-  * **RAW (Read-After-Write):** Dependência de dados verdadeira (Leitura Após Escrita). A instrução espera na ER pelo resultado.
-  * **WAR (Write-After-Read):** Conflito falso (Escrita Após Leitura). Resolvido copiando o valor lido para a ER no momento da emissão.
-  * **WAW (Write-After-Write):** Conflito falso (Escrita Após Escrita). Resolvido pelo renome de registradores (ROB e ER).
-  * **Commit (Efetivação):** Estágio final onde o resultado da instrução mais antiga é permanentemente escrito no banco de registradores.
+---
+
+## 5. Siglas e Conceitos-Chave
+
+* **ER / RS (Estação de Reserva):**
+  Armazena instruções emitidas e operandos (ou referências de quem os produzirá).
+  Permite renomeação de registradores, eliminando conflitos WAR e WAW.
+
+* **ROB (Buffer de Reordenação):**
+  Armazena resultados prontos de instruções executadas.
+  Garante o commit (efetivação) em ordem, mantendo o estado arquitetural consistente.
+
+* **CDB (Common Data Bus):**
+  Barramento de difusão dos resultados prontos (valores do ROB ou das UFs) para todas as ERs.
+
+* **RAW (Read After Write):**
+  Dependência verdadeira. A instrução espera o valor ser produzido antes de ler.
+
+* **WAR (Write After Read):**
+  Conflito falso. Resolvido copiando o valor lido para a ER no momento da emissão.
+
+* **WAW (Write After Write):**
+  Conflito falso de escrita. Resolvido via renomeação de registradores com o ROB.
+
+* **Commit (Efetivação):**
+  Estágio final, no qual a instrução mais antiga e pronta do ROB tem seu resultado escrito no banco de registradores.
+
+---
