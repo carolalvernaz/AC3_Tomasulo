@@ -83,7 +83,7 @@ OpType decodificar_mnemonico(const char *mnemonic) {
     if (strcmp(mnemonic, "MUL") == 0) return MUL;
     if (strcmp(mnemonic, "SUB") == 0) return SUB;
     if (strcmp(mnemonic, "DIV") == 0) return DIV;
-    if (strcmp(mnemonic, "LD") == 0) return LI; 
+    if (strcmp(mnemonic, "LW") == 0) return LI; 
     if (strcmp(mnemonic, "HALT") == 0) return HALT;
     fprintf(stderr, "Instrucao desconhecida: %s\n", mnemonic);
     return HALT;
@@ -95,7 +95,7 @@ const char* nome_operacao(OpType op) {
         case SUB: return "SUB";
         case MUL: return "MUL";
         case DIV: return "DIV";
-        case LI:  return "LD";
+        case LI:  return "LW";
         case HALT: return "HALT";
         default: return "???";
     }
@@ -191,10 +191,19 @@ void etapa_despacho(int instr_count) {
     estacoes_reserva[er_idx].cycles_left = 0;
     // Busca operandos
     if (instr_atual.op == LI) {
+        // LW: verifica dependência do registrador base (rs1)
         estacoes_reserva[er_idx].tag_j = -1;
-        estacoes_reserva[er_idx].val_j = instr_atual.rs2;
+        for (int i = 0; i < TAM_FILA_ROB; i++) {
+            if (fila_reordenacao[i].em_uso && fila_reordenacao[i].reg_arq_dest == instr_atual.rs1 && !fila_reordenacao[i].pronto) {
+                estacoes_reserva[er_idx].tag_j = i; // Depende do ROB[i]
+                break;
+            }
+        }
+        if (estacoes_reserva[er_idx].tag_j == -1)
+            estacoes_reserva[er_idx].val_j = registradores_arq.regs[instr_atual.rs1];
+        // Offset (rs2) é imediato, sem dependência
         estacoes_reserva[er_idx].tag_k = -1;
-        estacoes_reserva[er_idx].val_k = 0;
+        estacoes_reserva[er_idx].val_k = instr_atual.rs2;
     } else {
         // Operando J (rs1)
         estacoes_reserva[er_idx].tag_j = -1;
@@ -221,8 +230,8 @@ void etapa_despacho(int instr_count) {
     
     const char *op_str = (instr_atual.op == ADD) ? "op" : (instr_atual.op == SUB) ? "op" : (instr_atual.op == MUL) ? "op" : (instr_atual.op == DIV) ? "op" : "<-";
      if (instr_atual.op == LI) {
-         printf("Issue: PC=%d -> ER[%d], ROB[%d], R%d = %s %d\n",
-           cpu_core.pc, er_idx, rob_idx, instr_atual.rd, op_str, instr_atual.rs2);
+         printf("Issue: PC=%d -> ER[%d], ROB[%d], R%d = R%d (%d)\n",
+           cpu_core.pc, er_idx, rob_idx, instr_atual.rd, instr_atual.rs1, instr_atual.rs2);
     } else {
         printf("Issue: PC=%d -> ER[%d], ROB[%d], R%d = R%d %s R%d\n",
            cpu_core.pc, er_idx, rob_idx, instr_atual.rd, instr_atual.rs1, op_str, instr_atual.rs2);
@@ -259,7 +268,7 @@ void etapa_execucao() {
                 case SUB: resultado = unidade->val_j - unidade->val_k; break;
                 case MUL: resultado = unidade->val_j * unidade->val_k; break;
                 case DIV: resultado = (unidade->val_k ? unidade->val_j / unidade->val_k : 0); break;
-                case LI:  resultado = unidade->val_j; break;
+                case LI:  resultado = unidade->val_j + unidade->val_k; break; // LW: base + offset
                 default: break;
             }
             
@@ -352,11 +361,13 @@ int main() {
             memoria_instrucoes[instr_count++] = instr;
             break;
         }
-        // LD
+        // LW
         else if (instr.op == LI) {
-            if (sscanf(line, "%*s R%d , R%d , %d", &rd, &rs, &imm) != 3 &&
-                sscanf(line, "%*s R%d, R%d, %d", &rd, &rs, &imm) != 3) {
-                fprintf(stderr, "Erro ao ler LD (linha %d): %s\n", instr_count+1, line);
+            if (sscanf(line, "%*s R%d , R%d ( %d )", &rd, &rs, &imm) != 3 &&
+                sscanf(line, "%*s R%d, R%d (%d)", &rd, &rs, &imm) != 3 &&
+                sscanf(line, "%*s R%d , R%d (%d)", &rd, &rs, &imm) != 3 &&
+                sscanf(line, "%*s R%d, R%d ( %d )", &rd, &rs, &imm) != 3) {
+                fprintf(stderr, "Erro ao ler LW (linha %d): %s\n", instr_count+1, line);
                 continue;
             }
             instr.rd = rd; instr.rs1 = rs; instr.rs2 = imm;
