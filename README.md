@@ -6,13 +6,18 @@ Este projeto é um simulador em C do algoritmo de Tomasulo, implementando escalo
 
 Baseado nos conceitos do livro *Computer Architecture: A Quantitative Approach* (Hennessy & Patterson), o algoritmo de Tomasulo é uma técnica de escalonamento dinâmico que permite execução paralela e especulativa de instruções, maximizando o paralelismo de instruções (ILP).
 
-Neste simulador, há suporte a execução fora de ordem com controle de dependências de dados via estações de reserva (ER) e reordenação in-order no commit, garantindo a consistência do estado arquitetural.
+Neste simulador, há suporte à execução fora de ordem com controle de dependências de dados via estações de reserva (ER) e reordenação em ordem no commit, garantindo a consistência do estado arquitetural.
 
 ### Estágios do Pipeline
 
-1. **Issue (Emissão):** A instrução é alocada em uma Estação de Reserva (ER) e em um slot do Buffer de Reordenação (ROB). A ER aguarda os operandos ficarem disponíveis.
-2. **Execute (Execução):** Quando os operandos estão prontos, a instrução é executada. O resultado é gravado no ROB e marcado como pronto.
-3. **Write/Commit (Escrita e Efetivação):** O resultado pronto é difundido no barramento CDB, permitindo que outras ERs recebam os valores. O commit em ordem atualiza o banco de registradores, garantindo consistência e exceções precisas.
+1. **Issue (Emissão):**
+   A instrução é alocada em uma Estação de Reserva (ER) e em um slot do Buffer de Reordenação (ROB). A ER aguarda os operandos ficarem disponíveis.
+
+2. **Execute (Execução):**
+   Quando os operandos estão prontos, a instrução é executada. O resultado é gravado no ROB e marcado como pronto.
+
+3. **Write/Commit (Escrita e Efetivação):**
+   O resultado pronto é difundido no barramento CDB, permitindo que outras ERs recebam os valores. O commit em ordem atualiza o banco de registradores, garantindo consistência e exceções precisas.
 
 O commit em ordem assegura que o processador mantenha um estado previsível mesmo com execução fora de ordem.
 
@@ -92,16 +97,24 @@ O arquivo `simulacao.txt` deve conter uma instrução por linha, com mnemônicos
   Exemplo: R5 ← R1 × R2
   (Latência de 2 ciclos)
 
-  * **LW :** Carrega um valor de outro registrador + offset
-      * `LW R1, R2 (8)`
-  * **ADD (Adição):** Soma dois registradores.
-      * `ADD R3, R1, R2`
-  * **SUB (Subtração):** Subtrai dois registradores.
-      * `SUB R5, R3, R4`
-  * **MUL (Multiplicação):** Multiplica dois registradores.
-      * `MUL R4, R1, R2`
-  * **HALT (Parada):** Indica o fim do programa.
-      * `HALT`
+* **DIV (Divisão):**
+  Divide o valor do primeiro registrador pelo segundo.
+
+  ```
+  DIV R6, R4, R2
+  ```
+
+  Exemplo: R6 ← R4 ÷ R2
+  (Latência de 2 ciclos)
+
+* **HALT (Parada):**
+  Indica o fim do programa.
+
+  ```
+  HALT
+  ```
+
+---
 
 ### Exemplo de `simulacao.txt`
 
@@ -148,5 +161,57 @@ HALT
 
 * **Commit (Efetivação):**
   Estágio final, no qual a instrução mais antiga e pronta do ROB tem seu resultado escrito no banco de registradores.
-
 ---
+
+## 6. Melhorias Implementadas na Versão tomasuloCorrigido.c
+
+Nesta versão revisada do simulador do algoritmo de Tomasulo, foram realizadas diversas correções estruturais e aprimoramentos para torná-lo mais fiel ao comportamento de um **processador superescalar moderno, com maior paralelismo e precisão na simulação.
+
+### Principais Correções e Aprimoramentos
+
+1. **Suporte à Superescalaridade (emissão múltipla por ciclo):**
+   O simulador agora é capaz de emitir mais de uma instrução por ciclo (até duas, configurável), aproveitando melhor as Estações de Reserva disponíveis e simulando processadores superescalares reais.
+
+   * Permite issue paralelo de até duas instruções por ciclo.
+   * Respeita automaticamente as dependências de dados (RAW, WAR e WAW) por meio das tags do ROB.
+
+2. **Execução Paralela Real:**
+   As Estações de Reserva agora operam de forma autônoma e simultânea, cada uma com contador de ciclos independente.
+
+   * Instruções de diferentes tipos executam em paralelo, conforme suas latências.
+   * Operações de multiplicação e divisão possuem latência de 2 ciclos, enquanto ADD, SUB e LW executam em 1 ciclo.
+
+3. **Commit Múltiplo por Ciclo:**
+   Adicionado suporte ao commit de múltiplas instruções prontas no mesmo ciclo, mantendo a ordem no ROB.
+
+   * Melhora o desempenho mantendo a consistência arquitetural.
+   * Até dois commits por ciclo (configurável).
+
+4. **Correção e Melhoria nas Impressões:**
+   O formato de saída foi aprimorado para melhor depuração e clareza.
+
+   * Exibe o estado dos registradores e ERs a cada ciclo.
+   * Mostra claramente as fases Issue, Execute e Commit.
+
+5. **Controle de Ciclos e Encerramento Aprimorado:**
+
+   * Evita travamentos por dependências longas ou filas cheias.
+   * Define limite de ciclos (padrão: 100) para evitar laços infinitos.
+   * Encerramento controlado ao detectar HALT e esvaziar o ROB.
+
+6. **Manutenção da Estrutura Clássica e Extensível:**
+
+   * Mantém a organização base de Tomasulo (ER + ROB + CDB).
+   * Facilita futuras expansões, como múltiplas unidades funcionais especializadas.
+
+**Compilação:**
+
+```bash
+gcc -o tomasuloCorrigido tomasuloCorrigido.c
+```
+
+**Execução:**
+
+```bash
+./tomasuloCorrigido
+```

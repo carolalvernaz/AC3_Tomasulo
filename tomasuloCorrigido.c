@@ -4,9 +4,11 @@
 
 // Configuração da Arquitetura
 #define MAX_INSTR_MEM 16
-#define QTD_ESTACOES 4
-#define TAM_FILA_ROB 4
+#define QTD_ESTACOES 10
+#define TAM_FILA_ROB 10
 #define QTD_REGISTRADORES 8
+#define N_ISSUE_POR_CICLO 8
+#define N_COMMIT_POR_CICLO 8
 
 // Estruturas de Dados
 // Tipos de operação
@@ -37,7 +39,7 @@ SlotReserva estacoes_reserva[QTD_ESTACOES];
 // Item do Buffer de Reordenação (ROB)
 typedef struct {
     OpType op;
-    int reg_arq_dest; // Registrador de destino
+    int reg_arq_dest;
     int valor;
     bool pronto; 
     bool em_uso; 
@@ -52,12 +54,12 @@ typedef struct {
 
 ArquivoRegs registradores_arq = {{0}};
 
-// Unidade de Controle (Estado da CPU)
+// Unidade de Controle
 typedef struct {
     int pc;
-    int rob_head; // Ponteiro de commit
-    int rob_tail; // Ponteiro de issue
-    int rob_contagem; // Ocupação
+    int rob_head;
+    int rob_tail;
+    int rob_contagem;
     int ciclo;
 } UnidadeControle;
 
@@ -132,7 +134,7 @@ void mostrar_estacoes_reserva() {
         SlotReserva *er = &estacoes_reserva[i];
         printf("%2d | %-3s |  %3s | %3d | %2d | %2d | %2d | %2d\n",
             i,
-            nome_operacao(er->op),
+            er->ocupado ? nome_operacao(er->op) : "",
             er->ocupado ? "Sim" : "Nao",
             er->rob_destino,
             er->val_j,
@@ -156,85 +158,68 @@ void mostrar_regs_final() {
 
 // Estágio 1: Despacho (Issue)
 void etapa_despacho(int instr_count) {
-    if (cpu_core.pc >= instr_count) return;
-    Operacao instr_atual = memoria_instrucoes[cpu_core.pc];
-    if (instr_atual.op == HALT) {
-        return;
-    }
-    
-    int er_idx = encontrar_er_livre();
+    int emitidas = 0;
 
-    if (rob_cheio()) {
-        printf("Stall: ROB cheio.\n");
-        return; 
-    }
-    if (er_idx == -1) {
-        printf("Stall: Estacoes de reserva cheias.\n");
-        return;
-    }
+    while (emitidas < N_ISSUE_POR_CICLO && cpu_core.pc < instr_count) {
+        Operacao instr_atual = memoria_instrucoes[cpu_core.pc];
+        if (instr_atual.op == HALT) {
+            return;
+        }
 
-    // Aloca entrada no ROB e na ER
-    int rob_idx = cpu_core.rob_tail;
-    fila_reordenacao[rob_idx].op = instr_atual.op;
-    fila_reordenacao[rob_idx].reg_arq_dest = instr_atual.rd;
-    fila_reordenacao[rob_idx].pronto = false;
-    fila_reordenacao[rob_idx].em_uso = true;
+        if (rob_cheio()) {
+            printf("Stall: ROB cheio.\n");
+            return;
+        }
 
-    cpu_core.rob_tail = (cpu_core.rob_tail + 1) % TAM_FILA_ROB;
-    cpu_core.rob_contagem++;
-    
-    estacoes_reserva[er_idx].ocupado = true;
-    estacoes_reserva[er_idx].op = instr_atual.op;
-    estacoes_reserva[er_idx].rob_destino = rob_idx;
-    estacoes_reserva[er_idx].cycles_left = 0;
-    // Busca operandos
-    if (instr_atual.op == LI) {
-        // LW: verifica dependência do registrador base (rs1)
-        estacoes_reserva[er_idx].tag_j = -1;
+        int er_idx = encontrar_er_livre();
+        if (er_idx == -1) {
+            printf("Stall: Estacoes de reserva cheias.\n");
+            return;
+        }
+
+        // Aloca entrada no ROB
+        int rob_idx = cpu_core.rob_tail;
+        fila_reordenacao[rob_idx].op = instr_atual.op;
+        fila_reordenacao[rob_idx].reg_arq_dest = instr_atual.rd;
+        fila_reordenacao[rob_idx].pronto = false;
+        fila_reordenacao[rob_idx].em_uso = true;
+
+        cpu_core.rob_tail = (cpu_core.rob_tail + 1) % TAM_FILA_ROB;
+        cpu_core.rob_contagem++;
+
+        // Preenche Estação de Reserva
+        SlotReserva *er = &estacoes_reserva[er_idx];
+        er->ocupado = true;
+        er->op = instr_atual.op;
+        er->rob_destino = rob_idx;
+        er->cycles_left = 0;
+        er->tag_j = er->tag_k = -1;
+        er->val_j = er->val_k = 0;
+
+        // Dependências
         for (int i = 0; i < TAM_FILA_ROB; i++) {
-            if (fila_reordenacao[i].em_uso && fila_reordenacao[i].reg_arq_dest == instr_atual.rs1 && !fila_reordenacao[i].pronto) {
-                estacoes_reserva[er_idx].tag_j = i; // Depende do ROB[i]
-                break;
+            if (fila_reordenacao[i].em_uso && !fila_reordenacao[i].pronto) {
+                if (fila_reordenacao[i].reg_arq_dest == instr_atual.rs1)
+                    er->tag_j = i;
+                if (fila_reordenacao[i].reg_arq_dest == instr_atual.rs2)
+                    er->tag_k = i;
             }
         }
-        if (estacoes_reserva[er_idx].tag_j == -1)
-            estacoes_reserva[er_idx].val_j = registradores_arq.regs[instr_atual.rs1];
-        // Offset (rs2) é imediato, sem dependência
-        estacoes_reserva[er_idx].tag_k = -1;
-        estacoes_reserva[er_idx].val_k = instr_atual.rs2;
-    } else {
-        // Operando J (rs1)
-        estacoes_reserva[er_idx].tag_j = -1;
-        for (int i = 0; i < TAM_FILA_ROB; i++) {
-            if (fila_reordenacao[i].em_uso && fila_reordenacao[i].reg_arq_dest == instr_atual.rs1 && !fila_reordenacao[i].pronto) {
-                estacoes_reserva[er_idx].tag_j = i; // Depende do ROB[i]
-                break;
-            }
-        }
-        if (estacoes_reserva[er_idx].tag_j == -1)
-            estacoes_reserva[er_idx].val_j = registradores_arq.regs[instr_atual.rs1];
-        
-        // Operando K (rs2)
-        estacoes_reserva[er_idx].tag_k = -1;
-        for (int i = 0; i < TAM_FILA_ROB; i++) {
-            if (fila_reordenacao[i].em_uso && fila_reordenacao[i].reg_arq_dest == instr_atual.rs2 && !fila_reordenacao[i].pronto) {
-                estacoes_reserva[er_idx].tag_k = i; // Depende do ROB[i]
-                break;
-            }
-        }
-        if (estacoes_reserva[er_idx].tag_k == -1)
-            estacoes_reserva[er_idx].val_k = registradores_arq.regs[instr_atual.rs2];
-    }
-    
-    const char *op_str = (instr_atual.op == ADD) ? "op" : (instr_atual.op == SUB) ? "op" : (instr_atual.op == MUL) ? "op" : (instr_atual.op == DIV) ? "op" : "<-";
-     if (instr_atual.op == LI) {
-         printf("Issue: PC=%d -> ER[%d], ROB[%d], R%d = R%d (%d)\n",
-           cpu_core.pc, er_idx, rob_idx, instr_atual.rd, instr_atual.rs1, instr_atual.rs2);
-    } else {
+
+        if (er->tag_j == -1) er->val_j = registradores_arq.regs[instr_atual.rs1];
+        if (instr_atual.op == LI) {
+            er->val_k = instr_atual.rs2;
+            er->tag_k = -1;
+        } else if (er->tag_k == -1)
+            er->val_k = registradores_arq.regs[instr_atual.rs2];
+
         printf("Issue: PC=%d -> ER[%d], ROB[%d], R%d = R%d %s R%d\n",
-           cpu_core.pc, er_idx, rob_idx, instr_atual.rd, instr_atual.rs1, op_str, instr_atual.rs2);
-    }    
-    cpu_core.pc++;
+            cpu_core.pc, er_idx, rob_idx, instr_atual.rd,
+            instr_atual.rs1, nome_operacao(instr_atual.op), instr_atual.rs2);
+
+        cpu_core.pc++;
+        emitidas++;
+    }
 }
 
 // Estágio 2: Execução
@@ -242,22 +227,16 @@ void etapa_execucao() {
     for (int i = 0; i < QTD_ESTACOES; i++) {
         SlotReserva *unidade = &estacoes_reserva[i];
 
-         if (!unidade->ocupado) continue;
+        if (!unidade->ocupado) continue;
         
-          // Se ainda esperando operandos, não começa a contagem
-        if (unidade->tag_j != -1 || unidade->tag_k != -1) {
+        if (unidade->tag_j != -1 || unidade->tag_k != -1)
             continue;
-        }
 
-        // Se ainda não começou a executar (cycles_left == 0), inicia o contador
-        if (unidade->cycles_left == 0) {
+        if (unidade->cycles_left == 0)
             unidade->cycles_left = latency_for_op(unidade->op);
-        }
 
-        // Decrementa um ciclo de execução
         unidade->cycles_left--;
 
-        // Se acabou de terminar (cycles_left == 0), gera resultado
         if (unidade->cycles_left == 0) {
             int resultado = 0;
             switch (unidade->op) {
@@ -265,31 +244,30 @@ void etapa_execucao() {
                 case SUB: resultado = unidade->val_j - unidade->val_k; break;
                 case MUL: resultado = unidade->val_j * unidade->val_k; break;
                 case DIV: resultado = (unidade->val_k ? unidade->val_j / unidade->val_k : 0); break;
-                case LI:  resultado = unidade->val_j + unidade->val_k; break; // LW: base + offset
+                case LI:  resultado = unidade->val_j + unidade->val_k; break;
                 default: break;
             }
-            
+
             fila_reordenacao[unidade->rob_destino].valor = resultado;
             fila_reordenacao[unidade->rob_destino].pronto = true;
-            
-printf("Execute: ER[%d] (%s) -> ROB[%d] (Resultado: %d)\n",
-       i, nome_operacao(unidade->op), unidade->rob_destino, resultado);
-            unidade->ocupado = false; // Libera ER
-             unidade->tag_j = unidade->tag_k = -1;
+
+            printf("Execute: ER[%d] (%s) -> ROB[%d] (Resultado: %d)\n",
+                   i, nome_operacao(unidade->op), unidade->rob_destino, resultado);
+
+            unidade->ocupado = false;
+            unidade->tag_j = unidade->tag_k = -1;
             unidade->val_j = unidade->val_k = 0;
             unidade->cycles_left = 0;
         } else {
-            // ainda em execução
             printf("Executing: ER[%d] (%s) cycles_left=%d\n",
                    i, nome_operacao(unidade->op), unidade->cycles_left);
         }
     }
 }
 
-// Estágio 3/4: Escrita (CDB) e Finalização (Commit)
+// Estágio 3/4: Escrita e Commit
 void etapa_finalizacao() {
-    
-    // Parte 1: Escrita no CDB (Broadcast)
+    // Broadcast simultâneo
     for (int i = 0; i < TAM_FILA_ROB; i++) {
         if (fila_reordenacao[i].em_uso && fila_reordenacao[i].pronto) {
             for (int j = 0; j < QTD_ESTACOES; j++) {
@@ -307,24 +285,24 @@ void etapa_finalizacao() {
         }
     }
 
-    // Parte 2: Commit (em ordem)
-    int head_idx = cpu_core.rob_head;
-    if (fila_reordenacao[head_idx].em_uso && fila_reordenacao[head_idx].pronto) {
-        
+    // Commit de até N instruções
+    int commits = 0;
+    while (commits < N_COMMIT_POR_CICLO) {
+        int head_idx = cpu_core.rob_head;
+        if (!(fila_reordenacao[head_idx].em_uso && fila_reordenacao[head_idx].pronto))
+            break;
+
         int dest_reg = fila_reordenacao[head_idx].reg_arq_dest;
         int val_final = fila_reordenacao[head_idx].valor;
-
-        // Atualiza Arquivo de Registradores
         registradores_arq.regs[dest_reg] = val_final;
 
         printf("Commit: R%d <- %d (ROB[%d])\n", dest_reg, val_final, head_idx);
 
-        // Libera entrada do ROB e avança o ponteiro
         fila_reordenacao[head_idx].em_uso = false;
-        fila_reordenacao[head_idx].pronto = false; 
-
+        fila_reordenacao[head_idx].pronto = false;
         cpu_core.rob_head = (cpu_core.rob_head + 1) % TAM_FILA_ROB;
         cpu_core.rob_contagem--;
+        commits++;
     }
 }
 
@@ -337,7 +315,6 @@ int main() {
         return 1;
     }
 
-    // Carrega instruções
     char line[100];
     int instr_count = 0;
     while (fgets(line, sizeof(line), fp) && instr_count < MAX_INSTR_MEM) {
@@ -347,93 +324,50 @@ int main() {
         char mnemonic[10];
         int rd = -1, rs = -1, rt = -1, imm = 0;
 
-       if (sscanf(line, " %15s", mnemonic) != 1) continue;
+        if (sscanf(line, " %15s", mnemonic) != 1) continue;
 
         Operacao instr;
         instr.op = decodificar_mnemonico(mnemonic);
 
-        // HALT
         if (instr.op == HALT) {
             instr.rd = instr.rs1 = instr.rs2 = 0;
             memoria_instrucoes[instr_count++] = instr;
             break;
-        }
-        // LW
-        else if (instr.op == LI) {
-            if (sscanf(line, "%*s R%d , R%d ( %d )", &rd, &rs, &imm) != 3 &&
-                sscanf(line, "%*s R%d, R%d (%d)", &rd, &rs, &imm) != 3 &&
-                sscanf(line, "%*s R%d , R%d (%d)", &rd, &rs, &imm) != 3 &&
-                sscanf(line, "%*s R%d, R%d ( %d )", &rd, &rs, &imm) != 3) {
-                fprintf(stderr, "Erro ao ler LW (linha %d): %s\n", instr_count+1, line);
-                continue;
-            }
+        } else if (instr.op == LI) {
+            sscanf(line, "%*s R%d , R%d ( %d )", &rd, &rs, &imm);
             instr.rd = rd; instr.rs1 = rs; instr.rs2 = imm;
-        }
-        // Operacoes R-R-R
-        else {
-            if (sscanf(line, "%*s R%d , R%d , R%d", &rd, &rs, &rt) != 3 &&
-                sscanf(line, "%*s R%d, R%d, R%d", &rd, &rs, &rt) != 3) {
-                fprintf(stderr, "Erro ao ler instrucao (linha %d): %s\n", instr_count+1, line);
-                continue;
-            }
+        } else {
+            sscanf(line, "%*s R%d , R%d , R%d", &rd, &rs, &rt);
             instr.rd = rd; instr.rs1 = rs; instr.rs2 = rt;
         }
-
-        if (instr.rd < 0 || instr.rs1 < 0 ||
-            instr.rd >= QTD_REGISTRADORES || instr.rs1 >= QTD_REGISTRADORES) {
-            fprintf(stderr, "Erro: registrador fora do intervalo (linha %d): %s\n", instr_count+1, line);
-            fclose(fp);
-            return 1;
-        }
-   
-        if (instr.op != LI) {
-            if (instr.rs2 < 0 || instr.rs2 >= QTD_REGISTRADORES) {
-                fprintf(stderr, "Erro: registrador fora do intervalo (linha %d): %s\n", instr_count+1, line);
-                fclose(fp);
-                return 1;
-            }
-        }
-        printf("Instrucao lida [%d]: %s -> rd=R%d rs1=R%d rs2=%d\n", instr_count, mnemonic, instr.rd, instr.rs1, instr.rs2);
 
         memoria_instrucoes[instr_count++] = instr;
     }
     fclose(fp);
 
-    // Loop principal da simulação
     bool halt_detectado = false;
-    
-    while (true) {      
-        if (cpu_core.pc >= instr_count) {
-            printf("Fim da memoria de instrucoes alcancado.\n");
-            break;
-        }
 
-        if (memoria_instrucoes[cpu_core.pc].op == HALT) {
-            halt_detectado = true;
-        }
-
-        // Condição de parada
-        if (halt_detectado && cpu_core.rob_contagem == 0) {
-            break; 
-        }
+    while (true) {
+        if (cpu_core.pc >= instr_count) break;
 
         printf("Ciclo %d\n", cpu_core.ciclo);
         mostrar_banco_regs();
         mostrar_estacoes_reserva();
 
-        if (!halt_detectado) {
-            etapa_despacho(instr_count); // Envia instrução para ROB e Estação de Reserva
-        }
+        etapa_despacho(instr_count);
         etapa_execucao();
         etapa_finalizacao();
 
         cpu_core.ciclo++;
-        printf("\n"); 
+        printf("\n");
 
         if (cpu_core.ciclo > 100) {
             printf("Simulacao excedeu 100 ciclos. Abortando.\n");
             break;
         }
+
+        if (memoria_instrucoes[cpu_core.pc].op == HALT && cpu_core.rob_contagem == 0)
+            break;
     }
 
     printf("ESTADO FINAL\n");
