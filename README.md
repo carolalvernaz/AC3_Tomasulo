@@ -92,24 +92,16 @@ O arquivo `simulacao.txt` deve conter uma instrução por linha, com mnemônicos
   Exemplo: R5 ← R1 × R2
   (Latência de 2 ciclos)
 
-* **DIV (Divisão):**
-  Divide o valor do primeiro registrador pelo segundo.
-
-  ```
-  DIV R6, R4, R2
-  ```
-
-  Exemplo: R6 ← R4 ÷ R2
-  (Latência de 2 ciclos)
-
-* **HALT (Parada):**
-  Indica o fim do programa.
-
-  ```
-  HALT
-  ```
-
----
+  * **LW :** Carrega um valor de outro registrador + offset
+      * `LW R1, R2 (8)`
+  * **ADD (Adição):** Soma dois registradores.
+      * `ADD R3, R1, R2`
+  * **SUB (Subtração):** Subtrai dois registradores.
+      * `SUB R5, R3, R4`
+  * **MUL (Multiplicação):** Multiplica dois registradores.
+      * `MUL R4, R1, R2`
+  * **HALT (Parada):** Indica o fim do programa.
+      * `HALT`
 
 ### Exemplo de `simulacao.txt`
 
